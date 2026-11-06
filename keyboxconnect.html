@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NFC Keybox Uplink</title>
+    <style>
+        :root {
+            --bg-color: #050505;
+            --phosphor-green: #5ff94a;
+            --dim-green: #2a5a2a;
+            --font-main: 'Courier New', Courier, monospace;
+        }
+
+        body {
+            margin: 0;
+            background-color: var(--bg-color);
+            color: var(--phosphor-green);
+            font-family: var(--font-main);
+            font-weight: bold;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+            box-sizing: border-box;
+            text-shadow: 0 0 5px rgba(95, 249, 74, 0.4);
+        }
+
+        /* Skjuler skærme der ikke er aktive */
+        .screen {
+            display: none;
+            flex-direction: column;
+            height: 100%;
+        }
+
+        .active {
+            display: flex;
+        }
+
+        h1 {
+            font-size: 20px;
+            border-bottom: 2px solid var(--dim-green);
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+            text-transform: uppercase;
+        }
+
+        p {
+            font-size: 16px;
+            line-height: 1.5;
+            margin-bottom: 20px;
+        }
+
+        /* Input Skærm */
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        input {
+            background: transparent;
+            border: 2px solid var(--phosphor-green);
+            color: var(--phosphor-green);
+            font-family: var(--font-main);
+            font-size: 18px;
+            padding: 15px;
+            outline: none;
+            text-shadow: 0 0 5px rgba(95, 249, 74, 0.4);
+            box-shadow: 0 0 10px rgba(95, 249, 74, 0.1) inset;
+        }
+
+        input::placeholder {
+            color: var(--dim-green);
+        }
+
+        button {
+            background: var(--phosphor-green);
+            color: var(--bg-color);
+            border: none;
+            padding: 15px;
+            font-family: var(--font-main);
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+
+        button:active {
+            background: var(--dim-green);
+            color: var(--phosphor-green);
+        }
+
+        .error-msg {
+            color: #ff3333;
+            text-shadow: 0 0 5px #ff3333;
+            margin-top: 10px;
+            min-height: 20px;
+        }
+
+        /* Forbinder Skærm */
+        #console-output {
+            flex-grow: 1;
+            overflow-y: auto;
+            font-size: 14px;
+            line-height: 1.8;
+            margin-top: 20px;
+        }
+
+        /* Succes Skærm */
+        .success-box {
+            border: 2px dashed var(--phosphor-green);
+            padding: 20px;
+            text-align: center;
+            margin-top: 20px;
+            background: rgba(95, 249, 74, 0.05);
+        }
+
+        .big-code {
+            font-size: 28px;
+            letter-spacing: 2px;
+            margin: 20px 0;
+            color: #fff;
+            text-shadow: 0 0 10px var(--phosphor-green);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- SKÆRM 1: IP INDTASTNING -->
+    <div id="screen-input" class="screen active">
+        <h1>KEYBOX UPLINK MODULE</h1>
+        <p>STATUS: OFFLINE<br>No mainframe connection detected.</p>
+        <p>Please enter the Mainframe IP address to establish a secure link.</p>
+        
+        <div class="input-group">
+            <input type="text" id="ip-input" placeholder="E.g. 192.168.X.X" autocomplete="off" autocorrect="off" spellcheck="false">
+            <button onclick="attemptConnection()">INITIATE LINK</button>
+        </div>
+        <div class="error-msg" id="error-text"></div>
+    </div>
+
+    <!-- SKÆRM 2: FORBINDER (TERMINAL OUTPUT) -->
+    <div id="screen-connecting" class="screen">
+        <h1>UPLINK IN PROGRESS</h1>
+        <div id="console-output"></div>
+    </div>
+
+    <!-- SKÆRM 3: SUCCES -->
+    <div id="screen-success" class="screen">
+        <h1>UPLINK ESTABLISHED</h1>
+        <p>Target acquired. Handshake successful. Encryption keys verified.</p>
+        
+        <div class="success-box">
+            <div>CONNECTION-ID GENERATED:</div>
+            <div class="big-code" id="display-code">XXXXX</div>
+            <div>ENTER THIS ID IN MAINFRAME TO VERIFY LINK.</div>
+        </div>
+    </div>
+
+    <script>
+        // --- KONFIGURATION ---
+        
+        // Den IP-adresse de skal finde i dit Spaceship Mainframe program
+        const CORRECT_IP = "192.168.43.187"; 
+        
+        // Koden (Connection-ID) de får udleveret, når IP'en er tastet rigtigt.
+        // Husk at tilføje denne kode til 'VALID_CODES' i dit terminal.html program!
+        const CONNECTION_ID = "LINK1332"; 
+
+        // --- KONFIGURATION SLUT ---
+
+        // HTML elementer
+        const screenInput = document.getElementById('screen-input');
+        const screenConnecting = document.getElementById('screen-connecting');
+        const screenSuccess = document.getElementById('screen-success');
+        const ipInput = document.getElementById('ip-input');
+        const errorText = document.getElementById('error-text');
+        const consoleOutput = document.getElementById('console-output');
+        const displayCode = document.getElementById('display-code');
+
+        // Tekstlinjer der vises under "Forbinder..." fasen for at skabe stemning
+        const bootSequence = [
+            "Pinging target IP...",
+            "Target responding. Latency: 14ms",
+            "Initiating TCP/IP handshake...",
+            "Negotiating SSL/TLS protocols...",
+            "Warning: Outdated encryption detected.",
+            "Bypassing secondary firewall...",
+            "Synchronizing hardware clocks...",
+            "Exchanging RSA keys...",
+            "Decrypting payload...",
+            "Link stabilized."
+        ];
+
+        function attemptConnection() {
+            const enteredIp = ipInput.value.trim();
+            
+            if (enteredIp === CORRECT_IP) {
+                // Skift til forbindelses-skærmen
+                screenInput.classList.remove('active');
+                screenConnecting.classList.active = true; // Forbereder
+                screenConnecting.classList.add('active');
+                
+                errorText.textContent = "";
+                startFakeConnection();
+            } else {
+                errorText.textContent = "ERROR: HOST UNREACHABLE OR TIMEOUT.";
+                ipInput.value = "";
+                ipInput.focus();
+            }
+        }
+
+        // Simulerer at computeren tænker ved at skrive tekster ud med små pauser
+        async function startFakeConnection() {
+            consoleOutput.innerHTML = "";
+            
+            for (let i = 0; i < bootSequence.length; i++) {
+                // Skab en tilfældig pause mellem 400 og 1200 millisekunder
+                const randomDelay = Math.floor(Math.random() * 800) + 400;
+                await sleep(randomDelay);
+                
+                const line = document.createElement('div');
+                line.textContent = "> " + bootSequence[i];
+                consoleOutput.appendChild(line);
+                
+                // Scroll automatisk ned i bunden
+                consoleOutput.scrollTop = consoleOutput.scrollHeight;
+            }
+
+            // Vent lige et sekund til sidst før succes-skærmen vises
+            await sleep(1000);
+            showSuccess();
+        }
+
+        function showSuccess() {
+            screenConnecting.classList.remove('active');
+            screenSuccess.classList.add('active');
+            
+            // Indsæt Connection ID fra konfigurationen
+            displayCode.textContent = CONNECTION_ID;
+        }
+
+        // Hjælpefunktion til at lave pauser i koden
+        function sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        // Gør det muligt at trykke "Enter" (eller Go på telefon-tastaturet) for at forbinde
+        ipInput.addEventListener("keydown", function(e) {
+            if (e.key === "Enter") {
+                attemptConnection();
+            }
+        });
+    </script>
+</body>
+</html>
